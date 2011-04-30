@@ -26,7 +26,7 @@
 -module(emongo).
 -behaviour(gen_server).
 
--export([pools/0, oid/0, add_pool/5, del_pool/1]).
+-export([pools/0, oid/0, add_pool/4, add_pool/5, del_pool/1]).
 
 -export([fold_all/6,
          find_all/2, find_all/3, find_all/4,
@@ -82,7 +82,11 @@ oid() ->
     gen_server:call(?MODULE, oid, infinity).
 
 add_pool(PoolId, Host, Port, Database, Size) ->
-    emongo_sup:start_pool(PoolId, Host, Port, Database, Size).
+    add_pool(PoolId,{Host,Port},Database,Size).
+
+add_pool(PoolId,Url=[I|_],Database,Size) when is_integer(I) -> add_pool(PoolId,[Url],Database,Size);
+add_pool(PoolId,Url={_,_},Database,Size) -> add_pool(PoolId,[Url],Database,Size);
+add_pool(PoolId,Urls,Database,Size) when is_list(Urls) -> emongo_sup:start_pool(PoolId,Urls,Database,Size).
 
 del_pool(PoolId) ->
     emongo_sup:stop_pool(PoolId).

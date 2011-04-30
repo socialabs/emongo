@@ -3,7 +3,7 @@
 -behaviour(supervisor).
 
 -export([start_link/0, pools/0, worker_pid/2, worker_pid/3]).
--export([start_pool/5, stop_pool/1]).
+-export([start_pool/4, stop_pool/1]).
 -export([start_router/2, stop_router/1]).
 
 -deprecated([worker_pid/2]).
@@ -32,9 +32,9 @@ stop_router(BalId) ->
     end.
 
 
-start_pool(PoolId, Host, Port, Database, Size) ->
+start_pool(PoolId, Urls, Database, Size) ->
     supervisor:start_child(?MODULE, {PoolId,
-		{emongo_pool, start_link, [PoolId, Host, Port, Database, Size]},
+		{emongo_pool, start_link, [PoolId, Urls, Database, Size]},
 		permanent, 10000, worker, [emongo_pool]
 	}).
 

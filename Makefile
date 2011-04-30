@@ -26,6 +26,8 @@ install: src
 	@mkdir -p $(LIBDIR)/$(PKGNAME)-$(VERSION)/include
 	for i in ebin/*.beam include/*.hrl ebin/*.app; do install $$i $(LIBDIR)/$(PKGNAME)-$(VERSION)/$$i ; done
 
+shell: src
+	erl -pa ebin
 
 plt: src
 	@dialyzer --check_plt -q -r . -I include/

@@ -4,7 +4,7 @@
 
 -include("emongo.hrl").
 
--export([start_link/3]).
+-export([start_link/2]).
 
 -export([send/3, send/2, send_recv/4]).
 -export([send_recv_nowait/3, recv/4]).
@@ -26,9 +26,8 @@
 %% to be removed next release
 -define(old_send(ReqId, Packet), {send, ReqId, Packet}).
 
-
-start_link(PoolId, Host, Port) ->
-    gen_server:start_link(?MODULE, [PoolId, Host, Port], []).
+start_link(PoolId, Urls) ->
+    gen_server:start_link(?MODULE, [PoolId, Urls], []).
 
 
 send(Pid, _ReqID, Packet) ->
@@ -71,10 +70,11 @@ send_recv(Pid, ReqID, Packet, Timeout) ->
 
 %% gen_server %%
 
-init([PoolId, Host, Port]) ->
-    case gen_tcp:connect(Host, Port, [binary, {active, true}, {nodelay, true}], ?TIMEOUT) of
-        {ok, Socket} ->
-            {ok, #state{pool_id=PoolId, socket=Socket, requests=[], leftover = <<>>}};
+init([PoolId, Urls]) ->
+    case get_master(Urls) of
+        {socket,Socket,Rem} ->
+            inet:setopts(Socket,[{active,true}]),
+            {ok, #state{pool_id=PoolId, socket=Socket, requests=[], leftover = Rem}};
         {error, Reason} ->
             {stop, {failed_to_open_socket, Reason}}
     end.
@@ -136,7 +136,7 @@ process_bin(State, Bin) ->
 
         {Resp, Tail} ->
             ResponseTo = (Resp#response.header)#header.response_to,
-
+            
             case lists:keytake(ResponseTo, 1, State#state.requests) of
                 false ->
                     cleanup_cursor(Resp, ResponseTo, State),
@@ -169,3 +169,53 @@ cleanup_cursor(#response{cursor_id=0}, _, _) ->
 cleanup_cursor(#response{cursor_id=CursorID}, ReqId, State) ->
     Packet = emongo_packet:kill_cursors(ReqId, [CursorID]),
     gen_tcp:send(State#state.socket, Packet).
+
+get_master(Urls) -> get_master(Urls,noerror).
+
+get_master([],LastError) -> LastError;
+get_master([Url|Urls],_) ->
+    case get_ismaster(Url) of
+        {ok,Sock,Doc,Rem} -> 
+            IsMaster = proplists:get_value(<<"ismaster">>,Doc),
+            Primary = proplists:get_value(<<"primary">>,Doc),
+            case {IsMaster,Primary} of
+		{true,_} -> {socket,Sock,Rem};
+                {false,undefined} -> gen_tcp:close(Sock), get_master(Urls,{error,no_primary});
+                {false,OtherHost} -> gen_tcp:close(Sock), get_master([OtherHost])
+            end;
+	Other -> get_master(Urls,Other)
+    end.
+
+get_ismaster({H,P}) when is_list(P)     -> get_ismaster({H,list_to_integer(P)});
+get_ismaster({H,P}) when is_atom(H)     -> get_ismaster({atom_to_list(H),P});
+get_ismaster(Url)   when is_binary(Url) -> get_ismaster(binary_to_list(Url));
+get_ismaster(Url)   when is_list(Url)   ->
+    case string:tokens(Url,":") of
+        [H,P] when is_list(H) -> get_ismaster({H,list_to_integer(P)});
+        [H] -> get_ismaster({H,27017})
+    end;
+
+get_ismaster({Host,Port}) when is_list(Host), is_integer(Port) ->
+    case gen_tcp:connect(Host, Port, [binary, {active, false}, {nodelay, true}], ?TIMEOUT) of
+        {ok,Sock} -> 
+            Query = emongo_packet:do_query("admin","$cmd",1,#emo_query{q=[{"ismaster",1}],limit=1}),
+            gen_tcp:send(Sock,Query),
+            {ok,{Resp,Rem}} = sync_get_frame(Sock,<<>>),
+            1 = (Resp#response.header)#header.response_to, %%Ensure it's a response to this message
+            [IsMaster] = emongo_bson:decode(Resp#response.documents),
+	    {ok,Sock,IsMaster,Rem};
+        Err -> Err
+    end.
+
+sync_get_frame(Sock,Rem) ->
+    case gen_tcp:recv(Sock,0,1000) of
+        {ok,Bin} -> 
+            FullBin = <<Rem/binary,Bin/binary>>,
+            case emongo_packet:decode_response(FullBin) of
+                undefined -> sync_get_frame(Sock,FullBin);
+                R = {_,_} -> {ok,R}
+            end;
+        Other -> Other
+    end.
+
+

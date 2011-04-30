@@ -12,8 +12,7 @@
 ## Connecting to mongodb
 
 #### Option 1 - Config file
-
-example.config:
+example.config: Single mongo instance
 
 	[{emongo, [
 		{pools, [
@@ -26,9 +25,28 @@ example.config:
 		]}
 	]}].
 
+repl_example.config: Replication sets, see: <http://www.mongodb.org/display/DOCS/Replica+Sets>
+
+
+	[{emongo, [
+		{pools, [
+			{repl1, [
+				{size, 1},
+				{urls, [{"localhost",27018},{"localhost",27019}]},
+				{database, "testdatabase"}
+			]}
+		]}
+	]}].
+
 specify the config file path when starting Erlang
 
+Standalone:  
+
 	erl -config priv/example
+	
+Replication Set:  	
+
+	erl -config priv/repl_example
 
 start the application
 
@@ -39,11 +57,16 @@ start the application
 start the app and then add as many pools as you like
 
 	application:start(emongo).
+	%% Add a standalone pool
 	emongo:add_pool(pool1, "localhost", 27017, "testdatabase", 1).
+	%% add a replica set
+	emogo:add_pool(repl1, ["localhost:27018","localhost:27019"], "testdatabase", 1).
 
 ## API Type Reference
 
 __PoolName__ = atom()  
+__URL__ = string() | {string(),integer()}  
+__URLs__ = [URL]  
 __Host__ = string()  
 __Port__ = integer()  
 __Database__ = string()  
@@ -58,6 +81,8 @@ __BinSubType__ = integer() <http://www.mongodb.org/display/DOCS/BSON#BSON-noteon
 ## Add Pool
 
 	emongo:add_pool(PoolName, Host, Port, Database, PoolSize) -> ok
+
+	emongo:add_pool(PoolName, URLs, Database, PoolSize) -> ok
 
 ## Insert
 

@@ -42,11 +42,14 @@ stop(_) -> ok.
 
 initialize_pools() ->
     F = fun({PoolId, Props}) ->
-                Host = proplists:get_value(host, Props, "localhost"),
-                Port = proplists:get_value(port, Props, 27017),
+		case proplists:get_value(urls,Props) of
+		    undefined -> Urls = [{proplists:get_value(host, Props, "localhost"),
+					  proplists:get_value(port, Props, 27017)}];
+		    Urls -> Urls
+		end,
                 Database = proplists:get_value(database, Props, "test"),
                 Size = proplists:get_value(size, Props, 1),
-                emongo:add_pool(PoolId, Host, Port, Database, Size)
+		emongo:add_pool(PoolId, Urls, Database, Size)
         end,
 
 	case application:get_env(emongo, pools) of
