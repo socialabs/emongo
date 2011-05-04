@@ -196,7 +196,7 @@ get_ismaster(Url)   when is_list(Url)   ->
     end;
 
 get_ismaster({Host,Port}) when is_list(Host), is_integer(Port) ->
-    case gen_tcp:connect(Host, Port, [binary, {active, false}, {nodelay, true}], ?TIMEOUT) of
+    case gen_tcp:connect(Host, Port, [binary, {active, false}, {nodelay, true},{recbuf,1024*1024}], ?TIMEOUT) of
         {ok,Sock} -> 
             Query = emongo_packet:do_query("admin","$cmd",1,#emo_query{q=[{"ismaster",1}],limit=1}),
             gen_tcp:send(Sock,Query),
