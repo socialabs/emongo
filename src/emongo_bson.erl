@@ -160,12 +160,12 @@ encode_key(Key) when is_integer(Key) ->
 	encode_key(integer_to_list(Key)).
 
 decode(Bin) ->
-        decode(Bin, []),
+        decode(Bin, []).
 
     
 
 decode(<<>>, Acc) ->
-	lists:reverse(Acc);
+    lists:reverse(Acc);
 
 decode(Bin, Acc) ->
 	{Doc, Rest} = decode_next(Bin),
