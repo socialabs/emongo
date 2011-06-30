@@ -57,6 +57,14 @@ encode_key_value(Key, Val) when Val == [] orelse (is_list(Val) andalso length(Va
 	end;
 
 %% NESTED OBJECT
+encode_key_value(Key, {obj,[]}) ->  %% Empty obj had no representation, added {obj,PLIST} syntax to support
+	Key1 = encode_key(Key),
+	Val1 = <<3,0:32>>,
+	<<3, Key1/binary, 0, Val1/binary>>;
+
+encode_key_value(Key, {obj,[{_,_}|_]=List}) -> 
+        encode_key_value(Key,List);
+
 encode_key_value(Key, [{_,_}|_]=Val) ->
 	Key1 = encode_key(Key),
 	Val1 = encode(Val),
