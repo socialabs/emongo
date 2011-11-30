@@ -31,7 +31,8 @@
 -export([fold_all/6,
          find_all/2, find_all/3, find_all/4,
          find_one/3, find_one/4,
-         find_and_modify/5]).
+         find_and_modify/4,
+         find_and_update/5, find_and_remove/4]).
 
 -export([insert/3, update/4, update/5, update/6, delete/2, delete/3]).
 
@@ -164,11 +165,10 @@ find_all_seq(Collection, Selector, Options) ->
 %%------------------------------------------------------------------------------
 %% find_and_modify
 %%------------------------------------------------------------------------------
-find_and_modify(PoolId, Collection, Selector, Update, Options) ->
+find_and_modify(PoolId, Collection, Selector, Options) ->
     Selector1 = transform_selector(Selector),
     Collection1 = unicode:characters_to_binary(Collection),
-    OptionsDoc = fam_options(Options, [{<<"query">>, Selector1},
-                                       {<<"update">>, Update}]),
+    OptionsDoc = fam_options(Options, [{<<"query">>, Selector1}]),
     Query = #emo_query{q=[{<<"findandmodify">>, Collection1} | OptionsDoc],
                        limit=1},
     {Pid, Database, ReqId} = get_pid_pool(PoolId, 1),
@@ -180,6 +180,12 @@ find_and_modify(PoolId, Collection, Selector, Update, Options) ->
         true -> Resp;
         false -> Resp#response.documents
     end.
+
+find_and_update(PoolId, Collection, Selector, Update, Options) ->
+    find_and_modify(PoolId, Collection, Selector, [{update, Update} | Options]).
+
+find_and_remove(PoolId, Collection, Selector, Options) ->
+    find_and_modify(PoolId, Collection, Selector, [{remove, true} | Options]).
 
 %%------------------------------------------------------------------------------
 %% fold_all
@@ -506,17 +512,17 @@ create_query([_|Options], QueryRec, QueryDoc, OptDoc) ->
     create_query(Options, QueryRec, QueryDoc, OptDoc).
 
 fam_options([], OptDoc) -> OptDoc;
-fam_options([{sort, _}=Opt | Options], OptDoc) ->
+fam_options([{sort, _} = Opt | Options], OptDoc) ->
     fam_options(Options, [opt(Opt) | OptDoc]);
-fam_options([{remove, _}=Opt | Options], OptDoc) ->
+fam_options([{remove, _} = Opt | Options], OptDoc) ->
     fam_options(Options, [opt(Opt) | OptDoc]);
-fam_options([{update, _} | Options], OptDoc) ->
-    fam_options(Options, OptDoc); % update is a param to find_and_modify/5
-fam_options([{new, _}=Opt | Options], OptDoc) ->
+fam_options([{update, _} = Opt | Options], OptDoc) ->
     fam_options(Options, [opt(Opt) | OptDoc]);
-fam_options([{fields, _}=Opt | Options], OptDoc) ->
+fam_options([{new, _} = Opt | Options], OptDoc) ->
     fam_options(Options, [opt(Opt) | OptDoc]);
-fam_options([{upsert, _}=Opt | Options], OptDoc) ->
+fam_options([{fields, Fields} | Options], OptDoc) ->
+    fam_options(Options, [{<<"fields">>, [{Field, 1} || Field <- Fields]} | OptDoc]);
+fam_options([{upsert, _} = Opt | Options], OptDoc) ->
     fam_options(Options, [opt(Opt) | OptDoc]);
 fam_options([_ | Options], OptDoc) ->
     fam_options(Options, OptDoc).
