@@ -493,6 +493,11 @@ create_query([{fields, Fields}|Options], QueryRec, QueryDoc, OptDoc) ->
 create_query([explain | Options], QueryRec, QueryDoc, OptDoc) ->
     create_query(Options, QueryRec, QueryDoc, [{<<"$explain">>,true}|OptDoc]);
 
+create_query([slave_ok | Options], QueryRec, QueryDoc, OptDoc) ->
+    Opts = QueryRec#emo_query.opts,
+    QueryRec1 = QueryRec#emo_query{opts = lists:umerge([?SLAVE_OK], Opts)},
+    create_query(Options, QueryRec1, QueryDoc, OptDoc);
+
 create_query([_|Options], QueryRec, QueryDoc, OptDoc) ->
     create_query(Options, QueryRec, QueryDoc, OptDoc).
 
