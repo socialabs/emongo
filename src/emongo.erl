@@ -129,15 +129,9 @@ synchronous(Opts) ->
                      [] ->
                          emongo_packet:get_last_error(Database, ReqId);
                      _ ->
-                         FilteredOpts = [{atom_to_binary(Tag, utf8), Val}
-                                         || {Tag, Val} <- NewOpts,
-                                            Tag == w
-                                                orelse Tag == j
-                                                orelse Tag == fsync
-                                                orelse Tag == wtimeout],
                          emongo_packet:do_query(
                            Database, <<"$cmd">>, ReqId,
-                           [{<<"getlasterror">>, 1} | FilteredOpts])
+                           [{<<"getlasterror">>, 1} | NewOpts])
                  end,
              Resp = emongo_server:send_recv(Pid, ReqId, PacketGetLastError, Timeout),
              Resp#response.documents
