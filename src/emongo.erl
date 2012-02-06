@@ -41,15 +41,17 @@
 
 -export([dec2hex/1, hex2dec/1]).
 
--export([sequence/2, synchronous/0, no_response/0,
+-export([sequence/2, synchronous/0, synchronous/1, no_response/0,
          find_all_seq/3, fold_all_seq/5,
          insert_seq/3, update_seq/6, delete_seq/3]).
 
--export([update_sync/5, update_sync/6, delete_sync/3, insert_sync/3]).
+-export([update_sync/5, update_sync/6, update_sync/7,
+         delete_sync/3, delete_sync/4,
+         insert_sync/3, insert_sync/4]).
 
 -export([drop_database/1]).
 
--deprecated([update_sync/5, delete_sync/3]).
+-deprecated([update_sync/5, delete_sync/3, delete_sync/4]).
 
 %% internal
 -export([start_link/0, init/1, handle_call/3, handle_cast/2,
@@ -110,12 +112,33 @@ sequence([Operation|Tail], Pid, Database, ReqId) ->
 
 
 synchronous() ->
-    synchronous(?TIMEOUT).
+    synchronous([]).
 
-synchronous(Timeout) ->
+synchronous(Opts) ->
     [fun(_, _, _) -> ok end,
      fun(Pid, Database, ReqId) ->
-             PacketGetLastError = emongo_packet:get_last_error(Database, ReqId),
+             {NewOpts, Timeout} =
+                 case lists:keytake(timeout, 1, Opts) of
+                     false ->
+                         {Opts, ?TIMEOUT};
+                     {value, {timeout, TO}, NO} ->
+                         {NO, TO}
+                 end,
+             PacketGetLastError =
+                 case NewOpts of
+                     [] ->
+                         emongo_packet:get_last_error(Database, ReqId);
+                     _ ->
+                         FilteredOpts = [{atom_to_binary(Tag, utf8), Val}
+                                         || {Tag, Val} <- NewOpts,
+                                            Tag == w
+                                                orelse Tag == j
+                                                orelse Tag == fsync
+                                                orelse Tag == wtimeout],
+                         emongo_packet:do_query(
+                           Database, <<"$cmd">>, ReqId,
+                           [{<<"getlasterror">>, 1} | FilteredOpts])
+                 end,
              Resp = emongo_server:send_recv(Pid, ReqId, PacketGetLastError, Timeout),
              Resp#response.documents
      end].
@@ -249,7 +272,10 @@ insert_seq(Collection, Document, Next) ->
 
 
 insert_sync(PoolId, Collection, Documents) ->
-    sequence(PoolId, insert_seq(Collection, Documents, synchronous())).
+    insert_sync(PoolId, Collection, Documents, []).
+
+insert_sync(PoolId, Collection, Documents, SyncOpts) ->
+    sequence(PoolId, insert_seq(Collection, Documents, synchronous(SyncOpts))).
 
 %%------------------------------------------------------------------------------
 %% update
@@ -274,10 +300,12 @@ update_seq(Collection, Selector, Document, Upsert, MultiUpdate, Next) ->
 
 
 update_sync(PoolId, Collection, Selector, Document, Upsert) ->
-    update_sync(PoolId, Collection, Selector, Document, Upsert, false).
+    update_sync(PoolId, Collection, Selector, Document, Upsert, false, []).
 
 update_sync(PoolId, Collection, Selector, Document, Upsert, MultiUpdate) ->
-    sequence(PoolId, update_seq(Collection, Selector, Document, Upsert, MultiUpdate, synchronous())).
+    update_sync(PoolId, Collection, Selector, Document, Upsert, MultiUpdate, []).
+update_sync(PoolId, Collection, Selector, Document, Upsert, MultiUpdate, SyncOpts) ->
+    sequence(PoolId, update_seq(Collection, Selector, Document, Upsert, MultiUpdate, synchronous(SyncOpts))).
 
 %%------------------------------------------------------------------------------
 %% delete
@@ -297,7 +325,9 @@ delete_seq(Collection, Selector, Next) ->
 
 
 delete_sync(PoolId, Collection, Selector) ->
-    sequence(PoolId, delete_seq(Collection, Selector, synchronous())).
+    delete_sync(PoolId, Collection, Selector, []).
+delete_sync(PoolId, Collection, Selector, SyncOpts) ->
+    sequence(PoolId, delete_seq(Collection, Selector, synchronous(SyncOpts))).
 
 
 %%------------------------------------------------------------------------------
