@@ -129,9 +129,12 @@ synchronous(Opts) ->
                      [] ->
                          emongo_packet:get_last_error(Database, ReqId);
                      _ ->
+                         Query = #emo_query{
+                           q=[{<<"getlasterror">>, 1} | NewOpts],
+                           limit=1},
                          emongo_packet:do_query(
                            Database, <<"$cmd">>, ReqId,
-                           [{<<"getlasterror">>, 1} | NewOpts])
+                           Query)
                  end,
              Resp = emongo_server:send_recv(Pid, ReqId, PacketGetLastError, Timeout),
              Resp#response.documents
