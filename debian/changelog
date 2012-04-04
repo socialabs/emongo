@@ -1,3 +1,9 @@
+emongo (0.2.3-1) unstable; urgency=low
+
+  * Added Replica-Set support
+
+ -- Oleg Smirnov <oleg.smirnov@gmail.com>  Wed, 04 Apr 2012 23:15:16 +0300
+
 emongo (0.2.2-1) unstable; urgency=low
 
   * Added unique index support to ensure_index.
