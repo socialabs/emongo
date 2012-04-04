@@ -6,7 +6,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/5, pid/1, pid/2]).
+-export([start_link/4, pid/1, pid/2]).
 
 -deprecated([pid/1]).
 
@@ -20,8 +20,7 @@
 -define(POLL_TIMEOUT, 9000).
 
 -record(pool, {id,
-               host,
-               port,
+               urls,
                database,
                size,
                active=true,
@@ -42,8 +41,8 @@
 %% public api %%
 %%%%%%%%%%%%%%%%
 
-start_link(PoolId, Host, Port, Database, Size) ->
-    gen_server:start_link(?MODULE, [PoolId, Host, Port, Database, Size], []).
+start_link(PoolId, Urls, Database, Size) ->
+    gen_server:start_link(?MODULE, [PoolId, Urls, Database, Size], []).
 
 pid(Pid) ->
     gen_server:call(Pid, pid).
@@ -62,12 +61,11 @@ pid(Pid, RequestCount) ->
 %%                         {stop, Reason}
 %% Description: Initiates the server
 %%--------------------------------------------------------------------
-init([PoolId, Host, Port, Database, Size]) ->
+init([PoolId, Urls, Database, Size]) ->
     process_flag(trap_exit, true),
 
     Pool0 = #pool{id = PoolId,
-                  host = Host,
-                  port = Port,
+                  urls = Urls,
                   database = unicode:characters_to_binary(Database),
                   size = Size
                  },
@@ -191,7 +189,7 @@ get_pid(#pool{database=Database, conn_pid=Pids, req_id=ReqId}=State, RequestCoun
 do_open_connections(#pool{conn_pid=Pids, size=Size}=Pool) ->
     case pqueue:size(Pids) < Size of
         true ->
-            case emongo_server:start_link(Pool#pool.id, Pool#pool.host, Pool#pool.port) of
+            case emongo_server:start_link(Pool#pool.id, Pool#pool.urls) of
                 {error, _Reason} ->
                     Pool#pool{active=false};
                 {ok, Pid} ->

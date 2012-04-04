@@ -57,6 +57,14 @@ encode_key_value(Key, Val) when Val == [] orelse (is_list(Val) andalso length(Va
 	end;
 
 %% NESTED OBJECT
+encode_key_value(Key, {obj,[]}) ->  %% Empty obj had no representation, added {obj,PLIST} syntax to support
+	Key1 = encode_key(Key),
+	Val1 = <<5:32/little-signed,0>>,
+	<<3, Key1/binary, 0, Val1/binary>>;
+
+encode_key_value(Key, {obj,[{_,_}|_]=List}) -> 
+        encode_key_value(Key,List);
+
 encode_key_value(Key, [{_,_}|_]=Val) ->
 	Key1 = encode_key(Key),
 	Val1 = encode(Val),
@@ -157,10 +165,12 @@ encode_key(Key) when is_integer(Key) ->
 	encode_key(integer_to_list(Key)).
 
 decode(Bin) ->
-	decode(Bin, []).
+        decode(Bin, []).
+
+    
 
 decode(<<>>, Acc) ->
-	lists:reverse(Acc);
+    lists:reverse(Acc);
 
 decode(Bin, Acc) ->
 	{Doc, Rest} = decode_next(Bin),
