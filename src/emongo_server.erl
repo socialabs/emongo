@@ -49,7 +49,12 @@ recv(Pid, ReqID, 0, Tag) ->
     receive
         {Tag, Resp} ->
             Documents = emongo_bson:decode(Resp#response.documents),
-            Resp#response{documents=Documents}
+            case Documents of
+                [[{<<"$err">>, Reason} | _] | _] ->
+                    exit({emongo_error, Reason});
+                _ ->
+                    Resp#response{documents=Documents}
+            end
     after 0 ->
             exit(emongo_timeout)
     end;
@@ -58,7 +63,12 @@ recv(Pid, ReqID, Timeout, Tag) ->
     receive
         {Tag, Resp} ->
             Documents = emongo_bson:decode(Resp#response.documents),
-            Resp#response{documents=Documents}
+            case Documents of
+                [[{<<"$err">>, Reason} | _] | _] ->
+                    exit({emongo_error, Reason});
+                _ ->
+                    Resp#response{documents=Documents}
+            end
     after Timeout ->
             recv(Pid, ReqID, 0, Tag)
     end.
