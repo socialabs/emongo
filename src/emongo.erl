@@ -31,7 +31,8 @@
 -export([fold_all/6,
          find_all/2, find_all/3, find_all/4,
          find_one/3, find_one/4,
-         find_and_modify/5]).
+         find_and_modify/4,
+         find_and_update/5, find_and_remove/4]).
 
 -export([insert/3, update/4, update/5, update/6, delete/2, delete/3]).
 
@@ -40,15 +41,17 @@
 
 -export([dec2hex/1, hex2dec/1]).
 
--export([sequence/2, synchronous/0, no_response/0,
+-export([sequence/2, synchronous/0, synchronous/1, no_response/0,
          find_all_seq/3, fold_all_seq/5,
          insert_seq/3, update_seq/6, delete_seq/3]).
 
--export([update_sync/5, update_sync/6, delete_sync/3, insert_sync/3]).
+-export([update_sync/5, update_sync/6, update_sync/7,
+         delete_sync/3, delete_sync/4,
+         insert_sync/3, insert_sync/4]).
 
 -export([drop_database/1]).
 
--deprecated([update_sync/5, delete_sync/3]).
+-deprecated([update_sync/5, delete_sync/3, delete_sync/4]).
 
 %% internal
 -export([start_link/0, init/1, handle_call/3, handle_cast/2,
@@ -113,12 +116,30 @@ sequence([Operation|Tail], Pid, Database, ReqId) ->
 
 
 synchronous() ->
-    synchronous(?TIMEOUT).
+    synchronous([]).
 
-synchronous(Timeout) ->
+synchronous(Opts) ->
     [fun(_, _, _) -> ok end,
      fun(Pid, Database, ReqId) ->
-             PacketGetLastError = emongo_packet:get_last_error(Database, ReqId),
+             {NewOpts, Timeout} =
+                 case lists:keytake(timeout, 1, Opts) of
+                     false ->
+                         {Opts, ?TIMEOUT};
+                     {value, {timeout, TO}, NO} ->
+                         {NO, TO}
+                 end,
+             PacketGetLastError =
+                 case NewOpts of
+                     [] ->
+                         emongo_packet:get_last_error(Database, ReqId);
+                     _ ->
+                         Query = #emo_query{
+                           q=[{<<"getlasterror">>, 1} | NewOpts],
+                           limit=1},
+                         emongo_packet:do_query(
+                           Database, <<"$cmd">>, ReqId,
+                           Query)
+                 end,
              Resp = emongo_server:send_recv(Pid, ReqId, PacketGetLastError, Timeout),
              Resp#response.documents
      end].
@@ -168,11 +189,10 @@ find_all_seq(Collection, Selector, Options) ->
 %%------------------------------------------------------------------------------
 %% find_and_modify
 %%------------------------------------------------------------------------------
-find_and_modify(PoolId, Collection, Selector, Update, Options) ->
+find_and_modify(PoolId, Collection, Selector, Options) ->
     Selector1 = transform_selector(Selector),
     Collection1 = unicode:characters_to_binary(Collection),
-    OptionsDoc = fam_options(Options, [{<<"query">>, Selector1},
-                                       {<<"update">>, Update}]),
+    OptionsDoc = fam_options(Options, [{<<"query">>, Selector1}]),
     Query = #emo_query{q=[{<<"findandmodify">>, Collection1} | OptionsDoc],
                        limit=1},
     {Pid, Database, ReqId} = get_pid_pool(PoolId, 1),
@@ -184,6 +204,12 @@ find_and_modify(PoolId, Collection, Selector, Update, Options) ->
         true -> Resp;
         false -> Resp#response.documents
     end.
+
+find_and_update(PoolId, Collection, Selector, Update, Options) ->
+    find_and_modify(PoolId, Collection, Selector, [{update, Update} | Options]).
+
+find_and_remove(PoolId, Collection, Selector, Options) ->
+    find_and_modify(PoolId, Collection, Selector, [{remove, true} | Options]).
 
 %%------------------------------------------------------------------------------
 %% fold_all
@@ -247,7 +273,10 @@ insert_seq(Collection, Document, Next) ->
 
 
 insert_sync(PoolId, Collection, Documents) ->
-    sequence(PoolId, insert_seq(Collection, Documents, synchronous())).
+    insert_sync(PoolId, Collection, Documents, []).
+
+insert_sync(PoolId, Collection, Documents, SyncOpts) ->
+    sequence(PoolId, insert_seq(Collection, Documents, synchronous(SyncOpts))).
 
 %%------------------------------------------------------------------------------
 %% update
@@ -272,10 +301,12 @@ update_seq(Collection, Selector, Document, Upsert, MultiUpdate, Next) ->
 
 
 update_sync(PoolId, Collection, Selector, Document, Upsert) ->
-    update_sync(PoolId, Collection, Selector, Document, Upsert, false).
+    update_sync(PoolId, Collection, Selector, Document, Upsert, false, []).
 
 update_sync(PoolId, Collection, Selector, Document, Upsert, MultiUpdate) ->
-    sequence(PoolId, update_seq(Collection, Selector, Document, Upsert, MultiUpdate, synchronous())).
+    update_sync(PoolId, Collection, Selector, Document, Upsert, MultiUpdate, []).
+update_sync(PoolId, Collection, Selector, Document, Upsert, MultiUpdate, SyncOpts) ->
+    sequence(PoolId, update_seq(Collection, Selector, Document, Upsert, MultiUpdate, synchronous(SyncOpts))).
 
 %%------------------------------------------------------------------------------
 %% delete
@@ -295,7 +326,9 @@ delete_seq(Collection, Selector, Next) ->
 
 
 delete_sync(PoolId, Collection, Selector) ->
-    sequence(PoolId, delete_seq(Collection, Selector, synchronous())).
+    delete_sync(PoolId, Collection, Selector, []).
+delete_sync(PoolId, Collection, Selector, SyncOpts) ->
+    sequence(PoolId, delete_seq(Collection, Selector, synchronous(SyncOpts))).
 
 
 %%------------------------------------------------------------------------------
@@ -501,21 +534,26 @@ create_query([{fields, Fields}|Options], QueryRec, QueryDoc, OptDoc) ->
 create_query([explain | Options], QueryRec, QueryDoc, OptDoc) ->
     create_query(Options, QueryRec, QueryDoc, [{<<"$explain">>,true}|OptDoc]);
 
+create_query([slave_ok | Options], QueryRec, QueryDoc, OptDoc) ->
+    Opts = QueryRec#emo_query.opts,
+    QueryRec1 = QueryRec#emo_query{opts = lists:umerge([?SLAVE_OK], Opts)},
+    create_query(Options, QueryRec1, QueryDoc, OptDoc);
+
 create_query([_|Options], QueryRec, QueryDoc, OptDoc) ->
     create_query(Options, QueryRec, QueryDoc, OptDoc).
 
 fam_options([], OptDoc) -> OptDoc;
-fam_options([{sort, _}=Opt | Options], OptDoc) ->
+fam_options([{sort, _} = Opt | Options], OptDoc) ->
     fam_options(Options, [opt(Opt) | OptDoc]);
-fam_options([{remove, _}=Opt | Options], OptDoc) ->
+fam_options([{remove, _} = Opt | Options], OptDoc) ->
     fam_options(Options, [opt(Opt) | OptDoc]);
-fam_options([{update, _} | Options], OptDoc) ->
-    fam_options(Options, OptDoc); % update is a param to find_and_modify/5
-fam_options([{new, _}=Opt | Options], OptDoc) ->
+fam_options([{update, _} = Opt | Options], OptDoc) ->
     fam_options(Options, [opt(Opt) | OptDoc]);
-fam_options([{fields, _}=Opt | Options], OptDoc) ->
+fam_options([{new, _} = Opt | Options], OptDoc) ->
     fam_options(Options, [opt(Opt) | OptDoc]);
-fam_options([{upsert, _}=Opt | Options], OptDoc) ->
+fam_options([{fields, Fields} | Options], OptDoc) ->
+    fam_options(Options, [{<<"fields">>, [{Field, 1} || Field <- Fields]} | OptDoc]);
+fam_options([{upsert, _} = Opt | Options], OptDoc) ->
     fam_options(Options, [opt(Opt) | OptDoc]);
 fam_options([_ | Options], OptDoc) ->
     fam_options(Options, OptDoc).
